@@ -1,3 +1,5 @@
+# Dear Maria, I am sorry that I bothered you during your time off. This is not important and can wait. I had misunderstood you on Wednesday and had not looked in your calendar. Do not worry about this nonsense here until the 25th. Have a nice time and enjoy your holiday!
+
 # citation_normalisation
 The goal of this repository is to create a tool that creates a normalised citation output based on any identifier that directs to a publication. The idea is to gather information using different freely available APIs.
 
