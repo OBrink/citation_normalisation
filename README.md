@@ -33,11 +33,12 @@ for reference in references:
 > Holleman, A., F., Wiberg, E., Wiberg, N., Inorganic chemistry. Vol. 2. Subgroup elements, lanthanoids, actinoids, transactinoids. 103, 2017
 ```
 ## What works:
-- Retrieval of information via metapub (in the current stable version, the part of the code that is retrieving information from metapub is commented out)
-- Retrieval of information via Scholarly
+- Retrieval of information via metapub
+- if that does not work: Retrieval of information via Scholarly
 - Normalisation of Scholarly with two different output formats (depending on what information is given)
+- Using TOR for Scholarly to keep changing identity to avoid getting blocked
 
 ## TO DO:
-- Combination of multiple outputs. Workflow I want: First try metapub. If all necessary information is retrieved, normalise output, done. Otherwise: Look for missing information via Scholarly.
-- Proper proxy use for Scholarly. I already get blocked while testing. If we want to use Scholarly in big batches, this might become a problem. But the developers have implemented the option to use proxies. Unfortunately, right now, this returns a lot of errors and does not want to work (yet).
+- Get around Google Scholar CAPTCHAS? --> This might not be trivial. 
+- Replace scholarly with WOS API
 - Implement a proper output format for book citations
