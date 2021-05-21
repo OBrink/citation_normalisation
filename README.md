@@ -10,6 +10,9 @@ The goal of this repository is to create a tool that creates a normalised citati
 ```
 import citation_normalisation as cn
 
+# These exemplary results are just based on scholarly requests.
+# Metapub also works by now but only with a DOI.
+
 test_list = [
     'Rajan OCSR review',
     'Rajan Sorokina Brinkhaus',
@@ -42,3 +45,4 @@ for reference in references:
 - Get around Google Scholar CAPTCHAS? --> This might not be trivial. 
 - Replace scholarly with WOS API
 - Implement a proper output format for book citations
+- I am not really happy with some of the Metapub output (eg. journal name "J Cheminform")
