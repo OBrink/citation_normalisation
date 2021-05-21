@@ -65,10 +65,11 @@ def scholarly_request(search_string: str) -> Dict:
 	via scholarly'''
 	# TODO: Make Proxy usage work. 
 	# Use proxy so that we are not blocked by Google Scholar
-	# pg = ProxyGenerator()
-	# pg.FreeProxies()
-	# pg.Tor_Internal(tor_cmd = "tor")
-	# scholarly.use_proxy(pg)
+	#pg = ProxyGenerator()
+	#pg.FreeProxies()
+	#tor_path = os.path.normpath('C:/Users/Otto Brinkhaus/Downloads/Tor Browser/Browser/TorBrowser/Tor/tor.exe')
+	#pg.Tor_Internal(tor_cmd = tor_path)
+	#scholarly.use_proxy(pg)
 	# Get all available information
 	search_query = scholarly.search_pubs(search_string)
 	article_info = next(search_query)
@@ -82,15 +83,15 @@ def get_info_by_DOI(DOI: str) -> Dict:
 	'''This function takes a DOI str, requests information about the corresponding
 	article via metapub or scholarly and checks if all necessary information has been retrieved.'''
 	article_dict = {}
-	#fetch = PubMedFetcher()
-	#try:
-	#	article = fetch.article_by_doi(DOI)
+	fetch = PubMedFetcher()
+	try:
+		article = fetch.article_by_doi(DOI)
 		# Save information in Dict
-	#	for info in dir(article):
-	#		if info[0] != '_':
-	#			article_dict[info] = eval('article.' + info)
-	#except MetaPubError:
-	article_dict = scholarly_request(DOI)
+		for info in dir(article):
+			if info[0] != '_':
+				article_dict[info] = eval('article.' + info)
+	except MetaPubError:
+		article_dict = scholarly_request(DOI)
 	if contains_all_information(article_dict):
 		return article_dict
 
@@ -104,33 +105,48 @@ def contains_DOI(ID: str) -> str:
 		return match.group()
 
 
-def get_normalized_author_list(authors: str) -> str:
-	'''This function takes a list of authors as returned by Scholarly and
+def get_normalized_author_list(authors) -> str:
+	'''This function takes a author str as returned by Scholarly
+	or an author list as returned by Metapub and
 	return a normalized string.'''
-	# Normalize upper- and lowercase spelling
-	modified_authors = ""
-	for letter_index in range(len(authors)):
-		# Uppercase for first name
-		if letter_index == 0:
-			modified_authors += authors[letter_index].upper()
-		# Uppercase after space or hyphen
-		elif authors[letter_index-1] in [' ', '-']:
-			modified_authors += authors[letter_index].upper()
-		# Filter everything that is not a letter and add as lowercase character
-		elif re.search('[\w\-\s]', authors[letter_index]):
-			modified_authors += authors[letter_index].lower()
-	
-	# Split on " And " (scholarly output)
-	if 'And' in modified_authors.split(' '):
-		author_list = modified_authors.split(' And ')
-	
-	# Add names in abbreviated format to output string
 	output_str = ''
-	for name in author_list:
-		sub_name_list = name.split(' ')
-		output_str += sub_name_list[0] + ', '
-		for sub_name in sub_name_list[1:]:
-			output_str += sub_name[0] + '., '
+	# SCHOLARLY OUTPUT
+	if type(authors) == str:
+		modified_authors = ""
+		# Normalize upper- and lowercase spelling
+		for letter_index in range(len(authors)):
+			# Uppercase for first name
+			if letter_index == 0:
+				modified_authors += authors[letter_index].upper()
+			# Uppercase after space or hyphen
+			elif authors[letter_index-1] in [' ', '-']:
+				modified_authors += authors[letter_index].upper()
+			# Filter everything that is not a letter and add as lowercase character
+			elif re.search('[\w\-\s]', authors[letter_index]):
+				modified_authors += authors[letter_index].lower()
+		
+		# Split on " And " (scholarly output)
+		if 'And' in modified_authors.split(' '):
+			author_list = modified_authors.split(' And ')
+		
+		# Add names in abbreviated format to output string
+		for name in author_list:
+			sub_name_list = name.split(' ')
+			output_str += sub_name_list[0] + ', '
+			for sub_name in sub_name_list[1:]:
+				output_str += sub_name[0] + '., '
+	# METAPUB OUTPUT ['Lustig, PA', 'Mueller, H', ...]
+	elif type(authors) == list:
+		for name in authors:
+			for sub_name in name.split(' '):
+				# abbreviated first name(s)
+				if sub_name.isupper():
+					for char in sub_name:
+						output_str += char + '., '
+				# surname
+				else:
+					output_str += sub_name + '., '
+	#Remove last '.,'
 	output_str = output_str[:-2]
 	return output_str
 
@@ -174,7 +190,6 @@ def create_normalized_reference(article_dict: Dict) -> str:
 	else:
 		reference_str += normalize_title(article_dict['title']) + ', '
 		reference_str += article_dict['year']
-	
 	return reference_str
 
 
@@ -185,13 +200,15 @@ def get_structured_reference(unstructured_publication_ID: str) -> Dict:
 	- scholarly (Google Scholar API)
 	to request more information and returns a Dict that contains
 	all gathered information about the publication in a structured format.'''
-	#DOI = contains_DOI(unstructured_publication_ID)
-	#if DOI:
-	#	article_dict = get_info_by_DOI(DOI)
-	#else:
-	article_dict = scholarly_request(unstructured_publication_ID)
+	DOI = contains_DOI(unstructured_publication_ID)
+	if DOI:
+		article_dict = get_info_by_DOI(DOI)
+	# If no DOI is available, start a scholarly request with the given string
+	else:
+		article_dict = scholarly_request(unstructured_publication_ID)
 	#print(article_dict)
 	if article_dict:
+		print(article_dict)
 		normalized_reference = create_normalized_reference(article_dict)
 		return normalized_reference
 	else:
