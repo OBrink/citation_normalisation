@@ -1,4 +1,6 @@
-# Dear Maria, I am sorry that I bothered you during your time off. This is not important and can wait. I had misunderstood you on Wednesday and had not looked in your calendar. Do not worry about this nonsense here until the 24th. Have a nice time and enjoy your holiday!
+# Dear Maria, I am sorry that I bothered you during your time off. This is not important and can wait. I had misunderstood you on Wednesday and had not looked in your calendar. Do not worry about this nonsense here until the 25th. Have a nice time and enjoy your holiday!
+
+# Update 21/05/2021: Maybe let me try to do it via the Web of Science API on Tuesday and let's then meet at Wednesday. I think I have wasted too much time on trying to make it work with Scholarly as Google Scholar tries to block automated scraping. First, we need to use proxies to keep changing our IP, but that works. The main problem is that Google Scholar uses CAPTCHAs. This will make it impossible to process big batches of data.
 
 # citation_normalisation
 The goal of this repository is to create a tool that creates a normalised citation output based on any identifier that directs to a publication. The idea is to gather information using different freely available APIs.
