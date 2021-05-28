@@ -1,17 +1,10 @@
-# Dear Maria, I am sorry that I bothered you during your time off. This is not important and can wait. I had misunderstood you on Wednesday and had not looked in your calendar. Do not worry about this nonsense here until the 25th. Have a nice time and enjoy your holiday!
-
-# Update 21/05/2021: Maybe let me try to do it via the Web of Science API on Tuesday and let's then meet at Wednesday. I think I have wasted too much time on trying to make it work with Scholarly as Google Scholar tries to block automated scraping. First, we need to use proxies to keep changing our IP, but that works. The main problem is that Google Scholar uses CAPTCHAs. This will make it impossible to process big batches of data.
-
 # citation_normalisation
-The goal of this repository is to create a tool that creates a normalised citation output based on any identifier that directs to a publication. The idea is to gather information using different freely available APIs.
+The goal of this repository is to create a tool that creates a normalised citation output based on any identifier that refers to a publication. The idea is to gather information using different freely available APIs.
 
 # Usage:
 
 ```
 import citation_normalisation as cn
-
-# These exemplary results are just based on scholarly requests.
-# Metapub also works by now but only with a DOI.
 
 test_list = [
     'Rajan OCSR review',
@@ -36,13 +29,21 @@ for reference in references:
 > Holleman, A., F., Wiberg, E., Wiberg, N., Inorganic chemistry. Vol. 2. Subgroup elements, lanthanoids, actinoids, transactinoids. 103, 2017
 ```
 ## What works:
-- Retrieval of information via metapub
-- if that does not work: Retrieval of information via Scholarly
-- Normalisation of Scholarly with two different output formats (depending on what information is given)
-- Using TOR for Scholarly to keep changing identity to avoid getting blocked
+Workflow:
+    - Detect DOI:
+        - Retrieval of information via Metapub or Crossref with DOI    
+    - Detect PMID (only works if the input only is the PMID, RegEx for any number would be too unspecific and dangerous.)
+        - Retrieval of information via Metapub with PMID
+    - No success with DOI/PMID:
+        - Retrieval of information via Crossref with given keyword
+    - Emergency solution if Metapub and Crossref have failed: 
+        - Retrieval of inforamtion via Scholarly (problematic due to CAPTCHAs by Google) with given keyword
+    
+    - After successful information retrieval:
+        - Normalisation of author names (format and upper-/lowercase spelling) in all outputs --> ['Mustermann, M.', 'Musterfrau, L., H.']
+        - Normalisation of publication dict keys
 
 ## TO DO:
 - Get around Google Scholar CAPTCHAS? --> This might not be trivial. 
-- Replace scholarly with WOS API
+- Maybe replace scholarly with WOS API (not freely accessible, so not ideal)
 - Implement a proper output format for book citations
-- I am not really happy with some of the Metapub output (eg. journal name "J Cheminform")
