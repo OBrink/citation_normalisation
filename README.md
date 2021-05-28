@@ -1,4 +1,6 @@
-# Dear Maria, I am sorry that I bothered you during your time off. This is not important and can wait. I had misunderstood you on Wednesday and had not looked in your calendar. Do not worry about this nonsense here until the 24th. Have a nice time and enjoy your holiday!
+# Dear Maria, I am sorry that I bothered you during your time off. This is not important and can wait. I had misunderstood you on Wednesday and had not looked in your calendar. Do not worry about this nonsense here until the 25th. Have a nice time and enjoy your holiday!
+
+# Update 21/05/2021: Maybe let me try to do it via the Web of Science API on Tuesday and let's then meet at Wednesday. I think I have wasted too much time on trying to make it work with Scholarly as Google Scholar tries to block automated scraping. First, we need to use proxies to keep changing our IP, but that works. The main problem is that Google Scholar uses CAPTCHAs. This will make it impossible to process big batches of data.
 
 # citation_normalisation
 The goal of this repository is to create a tool that creates a normalised citation output based on any identifier that directs to a publication. The idea is to gather information using different freely available APIs.
@@ -7,6 +9,9 @@ The goal of this repository is to create a tool that creates a normalised citati
 
 ```
 import citation_normalisation as cn
+
+# These exemplary results are just based on scholarly requests.
+# Metapub also works by now but only with a DOI.
 
 test_list = [
     'Rajan OCSR review',
@@ -31,11 +36,13 @@ for reference in references:
 > Holleman, A., F., Wiberg, E., Wiberg, N., Inorganic chemistry. Vol. 2. Subgroup elements, lanthanoids, actinoids, transactinoids. 103, 2017
 ```
 ## What works:
-- Retrieval of information via metapub (in the current stable version, the part of the code that is retrieving information from metapub is commented out)
-- Retrieval of information via Scholarly
+- Retrieval of information via metapub
+- if that does not work: Retrieval of information via Scholarly
 - Normalisation of Scholarly with two different output formats (depending on what information is given)
+- Using TOR for Scholarly to keep changing identity to avoid getting blocked
 
 ## TO DO:
-- Combination of multiple outputs. Workflow I want: First try metapub. If all necessary information is retrieved, normalise output, done. Otherwise: Look for missing information via Scholarly.
-- Proper proxy use for Scholarly. I already get blocked while testing. If we want to use Scholarly in big batches, this might become a problem. But the developers have implemented the option to use proxies. Unfortunately, right now, this returns a lot of errors and does not want to work (yet).
+- Get around Google Scholar CAPTCHAS? --> This might not be trivial. 
+- Replace scholarly with WOS API
 - Implement a proper output format for book citations
+- I am not really happy with some of the Metapub output (eg. journal name "J Cheminform")
