@@ -271,19 +271,23 @@ def create_normalized_reference_str(article_dict: Dict) -> str:
 	get_info_by_DOI() or scholarly_request()) and returns a normalized reference string.'''
 	reference_str = ''
 	# Add authors
-	reference_str += get_normalized_author_list(article_dict['authors']) + ', '
+	for author in article_dict['authors']:
+		reference_str += author + ', '
 	# If the journal name is known: Create something with the pattern
 	# #Smith, J et al, J. Odd Results, 1968, 10, 1020-30
 	if 'journal' in article_dict.keys():
 		reference_str += normalize_title(article_dict['journal'], only_if_homogeneous=False) + ', '
-		reference_str += article_dict['year'] + ', '
+		reference_str += str(article_dict['year']) + ', '
 		if 'volume' in article_dict.keys():
 			reference_str += article_dict['volume'] + ', '
 		if 'pages' in article_dict.keys():
-			reference_str += article_dict['pages'].replace('--', '-')
+			reference_str += article_dict['pages'].replace('--', '-') + ', '
 	else:
 		reference_str += normalize_title(article_dict['title']) + ', '
-		reference_str += article_dict['year']
+		reference_str += str(article_dict['year']) + ', '
+	reference_str = reference_str[:-2]
+	if 'DOI' in article_dict.keys():
+		reference_str += ' - DOI: ' + article_dict['DOI']
 	return reference_str
 
 
