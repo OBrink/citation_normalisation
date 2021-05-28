@@ -2,14 +2,19 @@ import sys
 import os
 import re
 from typing import List, Tuple, Dict
+import time
 
 from metapub import PubMedFetcher
 from metapub.exceptions import MetaPubError
-from scholarly import scholarly, ProxyGenerator
+
+from scholarly import scholarly
 
 
+from crossref.restful import Works
 
-def contains_all_information(article_dict) -> bool:
+import requests
+
+def contains_minimal_information(article_dict) -> bool:
 	'''This function takes a dictionary, checks if a minimum of information is included
 	Necessary keys: "title", "authors", "year", "pages"
 	Additionally one of the following keys: ("journal", "book_title")
@@ -23,7 +28,7 @@ def contains_all_information(article_dict) -> bool:
 	for key in necessary_keys:
 		if key not in article_dict.keys():
 			break
-		elif len(article_dict[key]) <= 1:
+		elif not article_dict[key]:
 			break
 	# Check that one key from each one_of_key_tuple exists and has a value
 	else:
@@ -57,19 +62,14 @@ def normalize_scholarly_dict(article_dict: Dict) -> Dict:
 	for key_tuple in old_new_key_tuples:
 		if key_tuple[0] in article_dict.keys():
 			article_dict[key_tuple[1]] = article_dict.pop(key_tuple[0])
+	# Normalize author list
+	article_dict['authors'] == get_normalized_author_list(article_dict['authors'], 'scholarly')
 	return article_dict
 
 
 def scholarly_request(search_string: str) -> Dict:
 	'''This function takes a search keyword string and request information about the corresponding article
 	via scholarly'''
-	# TODO: Make Proxy usage work. 
-	# Use proxy so that we are not blocked by Google Scholar
-	#pg = ProxyGenerator()
-	#pg.FreeProxies()
-	#tor_path = os.path.normpath('C:/Users/Otto Brinkhaus/Downloads/Tor Browser/Browser/TorBrowser/Tor/tor.exe')
-	#pg.Tor_Internal(tor_cmd = tor_path)
-	#scholarly.use_proxy(pg)
 	# Get all available information
 	search_query = scholarly.search_pubs(search_string)
 	article_info = next(search_query)
@@ -81,7 +81,7 @@ def scholarly_request(search_string: str) -> Dict:
 
 def get_info_by_DOI(DOI: str) -> Dict:
 	'''This function takes a DOI str, requests information about the corresponding
-	article via metapub or scholarly and checks if all necessary information has been retrieved.'''
+	article via metapub or crossref and checks if all necessary information has been retrieved.'''
 	article_dict = {}
 	fetch = PubMedFetcher()
 	try:
@@ -89,10 +89,44 @@ def get_info_by_DOI(DOI: str) -> Dict:
 		# Save information in Dict
 		for info in dir(article):
 			if info[0] != '_':
-				article_dict[info] = eval('article.' + info)
+				# Normalize author list
+				if info == 'authors':
+					article_dict[info] = get_normalized_author_list(eval('article.' + info), 'metapub')
+				else:
+					article_dict[info] = eval('article.' + info)
 	except MetaPubError:
-		article_dict = scholarly_request(DOI)
-	if contains_all_information(article_dict):
+		# If it does not work via Metapub, do it via Crossref Api
+		# If there is a timeout, sleep for three seconds and try again (20 times)
+		for _ in range(20):
+			try:
+				works = Works()
+				article_dict = works.doi(DOI)
+				break
+			except:
+				time.sleep(3)
+		article_dict = normalize_crossref_dict(article_dict)
+	if contains_minimal_information(article_dict):
+		return article_dict
+
+
+def get_info_by_PMID(PMID: str) -> Dict:
+	'''This function takes a PMID str, requests information about the corresponding
+	article via metapub and checks if all necessary information has been retrieved.'''
+	article_dict = {}
+	fetch = PubMedFetcher()
+	try:
+		article = fetch.article_by_pmid(PMID)
+		# Save information in Dict
+		for info in dir(article):
+			if info[0] != '_':
+				# Normalize author list
+				if info == 'authors':
+					article_dict[info] = get_normalized_author_list(eval('article.' + info), 'metapub')
+				else:
+					article_dict[info] = eval('article.' + info)
+	except MetaPubError:
+		pass
+	if contains_minimal_information(article_dict):
 		return article_dict
 
 
@@ -105,50 +139,81 @@ def contains_DOI(ID: str) -> str:
 		return match.group()
 
 
-def get_normalized_author_list(authors) -> str:
-	'''This function takes a author str as returned by Scholarly
+def normalize_name_spelling(name: str) -> str:
+	'''This function takes a string and returns the same string with normalized
+	upper- and lowercase spelling ('MUSTERMANN, MAX-MORITZ' -> 'Mustermann, Max-Moritz').'''
+	normalized_name = ''
+	for letter_index in range(len(name)):
+		# Uppercase for first name
+		if letter_index == 0:
+			normalized_name += name[letter_index].upper()
+		# Uppercase after space or hyphen
+		elif name[letter_index-1] in [' ', '-']:
+			normalized_name += name[letter_index].upper()
+		#elif re.search('[\w\-\s]', author[letter_index]): # Filter everything that is not a letter and add as lowercase character
+
+		else:
+			normalized_name += name[letter_index].lower()
+	return normalized_name
+
+
+def get_normalized_author_list(authors, input_type: str) -> List[str]:
+	'''This function takes a author str as returned by Scholarly,
+	an author list as returned by the Crossref API
 	or an author list as returned by Metapub and
-	return a normalized string.'''
-	output_str = ''
+	return list of normalized author strings.
+	The input_type has to be specified as 'scholarly', 'metapub' or 'crossref'.
+	-> ['Doe, J.', 'Mustermann, M.']'''
 	# SCHOLARLY OUTPUT
-	if type(authors) == str:
-		modified_authors = ""
+	# 'Rajan, Kohulan and Brinkhaus, Henning Otto and SOROKINA, MARIA and Zielesny, Achim and Steinbeck, Christoph'
+	author_list = []
+	if input_type == 'scholarly':
+		orig_author_list = authors.split(' And ')
 		# Normalize upper- and lowercase spelling
-		for letter_index in range(len(authors)):
-			# Uppercase for first name
-			if letter_index == 0:
-				modified_authors += authors[letter_index].upper()
-			# Uppercase after space or hyphen
-			elif authors[letter_index-1] in [' ', '-']:
-				modified_authors += authors[letter_index].upper()
-			# Filter everything that is not a letter and add as lowercase character
-			elif re.search('[\w\-\s]', authors[letter_index]):
-				modified_authors += authors[letter_index].lower()
-		
-		# Split on " And " (scholarly output)
-		if 'And' in modified_authors.split(' '):
-			author_list = modified_authors.split(' And ')
-		
-		# Add names in abbreviated format to output string
-		for name in author_list:
-			sub_name_list = name.split(' ')
-			output_str += sub_name_list[0] + ', '
-			for sub_name in sub_name_list[1:]:
-				output_str += sub_name[0] + '., '
-	# METAPUB OUTPUT ['Lustig, PA', 'Mueller, H', ...]
-	elif type(authors) == list:
+		for author in orig_author_list:
+			normalized_author = ''
+
+			for split_subname_index in range(len(author.split(', '))):
+				# Copy complete surname with normalized spelling
+				if split_subname_index == 0:
+					normalized_author += normalize_name_spelling(author.split(', ')[split_subname_index])
+				# Only copy abbreviated first names
+				else:
+					normalized_author += ', '
+					for letter_index in range(len(author.split(', ')[split_subname_index])):
+						if authors[letter_index-1] in [' ', '-']:
+							normalized_author += author[letter_index].upper()  
+							if split_subname_index != len(author.split(', ')):
+								normalized_author += '., '
+			author_list.append(normalized_author)
+
+	# METAPUB OUTPUT ['Lustig, P', 'Mueller, HO', ...]
+	elif input_type == 'metapub':
 		for name in authors:
+			normalized_author = ''
 			for sub_name in name.split(' '):
 				# abbreviated first name(s)
 				if sub_name.isupper():
 					for char in sub_name:
-						output_str += char + '., '
+						normalized_author += char + '., '
 				# surname
 				else:
-					output_str += sub_name + '., '
-	#Remove last '.,'
-	output_str = output_str[:-2]
-	return output_str
+					normalized_author += sub_name + '., '
+			author_list.append(normalized_author)
+
+	# CROSSREF OUTPUT: [{'given': 'Kohulan', 'family': 'Rajan', 'sequence': 'first', 'affiliation': []}, {'given': 'Henning Otto', 'family': 'Brinkhaus', 'sequence': 'additional', 'affiliation': []}]
+	elif input_type == 'crossref':
+		for author_dict in authors:
+			normalized_author = ''
+			normalized_author += normalize_name_spelling(author_dict['family']) +', '
+			first_names = author_dict['given'].split()
+			for first_name_index in range(len(first_names)):
+				normalized_author += first_names[first_name_index][0].upper() + '.'
+				if first_name_index != len(first_names) - 1:
+					normalized_author += ', '
+			author_list.append(normalized_author)
+
+	return author_list
 
 
 def normalize_title(title: str, only_if_homogeneous: bool = True) -> str:
@@ -172,7 +237,36 @@ def normalize_title(title: str, only_if_homogeneous: bool = True) -> str:
 	return title
 
 
-def create_normalized_reference(article_dict: Dict) -> str:
+def normalize_crossref_dict(crossref_dict: Dict) -> Dict:
+	'''This function takes a dict with publication metadata as returned by the 
+	Crossref API and returns a dict which contains the essential information in 
+	the same format as returned by Metapub.'''
+	normalized_dict = {}
+	normkeys = ['title', 'abstract', 'DOI', 'issue', 'volume']
+	for normkey in normkeys:
+		if normkey in crossref_dict.keys():
+			content = crossref_dict[normkey]
+			if type(content) == list:
+				normalized_dict[normkey] = content[0]
+			else:
+				normalized_dict[normkey] = content
+	# year
+	if 'issued' in crossref_dict.keys():
+		if 'date-parts' in crossref_dict['issued']:
+			normalized_dict['year'] = crossref_dict['issued']['date-parts'][0][0]
+			
+	# journal/book
+	if 'type' in crossref_dict.keys():
+		if crossref_dict['type'] == 'journal-article':
+			normalized_dict['journal'] = crossref_dict['container-title'][0]
+	# author list
+	if 'author' in crossref_dict.keys(): 
+		normalized_dict['authors'] = get_normalized_author_list(crossref_dict['author'], 'crossref')
+	return normalized_dict
+
+
+def create_normalized_reference_str(article_dict: Dict) -> str:
+	# TODO: Modify according to update
 	'''This function takes a dictionary with information about a publication (as returned by
 	get_info_by_DOI() or scholarly_request()) and returns a normalized reference string.'''
 	reference_str = ''
@@ -196,26 +290,73 @@ def create_normalized_reference(article_dict: Dict) -> str:
 def get_structured_reference(unstructured_publication_ID: str) -> Dict:
 	'''This function takes a string that contains a reference to a publication.
 	It uses
-	- metapub (PubMed API)
-	- scholarly (Google Scholar API)
+	- Metapub (PubMed API)
+	- Crossref API
+	- scholarly (Google Scholar API) [for now removed because of CAPTCHAS]
 	to request more information and returns a Dict that contains
 	all gathered information about the publication in a structured format.'''
+	
+	# If there is a DOI in the input str, try to use Metapub and 
+	article_dict = False
 	DOI = contains_DOI(unstructured_publication_ID)
 	if DOI:
 		article_dict = get_info_by_DOI(DOI)
-	# If no DOI is available, start a scholarly request with the given string
-	else:
-		article_dict = scholarly_request(unstructured_publication_ID)
-	#print(article_dict)
-	if article_dict:
-		print(article_dict)
-		normalized_reference = create_normalized_reference(article_dict)
-		return normalized_reference
-	else:
-		print('Unable to retrieve information based on: ' + unstructured_publication_ID)
+	# If no DOI is available or the queries have not returned anything reasonable, 
+	#check if the given ID only consists of numbers. If that is the case, interpret 
+	# it as a PMID for a Metapub query.
+	if not article_dict:
+		if unstructured_publication_ID.isdigit():
+			article_dict = get_info_by_PMID(unstructured_publication_ID)
+	# If it has not worked until now, use crossref API and take most 'relevant' result
+	# TODO: Some sort of validation that we get the right result here
+	if not article_dict:
+		article_dict = crossrefAPI_query(unstructured_publication_ID)
 		
-	
-	
+	# If we still have not gotten a sufficient result, try Google Scholar and take most 'relevant' result
+	if not contains_minimal_information(article_dict):
+		article_dict = scholarly_request(unstructured_publication_ID)
+	return article_dict
+
+
+#def WOS_query(keyword: str):
+#	'''Does not work'''
+#	with WosClient('john.doe@uni-jena.de', 'insert_password_here') as client:
+#		result = wos.utils.query(client, keyword)
+#		return result
+
+
+
+def crossrefAPI_query(keyword: str) -> Dict:
+	'''This function takes a keyword str and sends an according GET request to the CrossRef API.
+	A normalized version of the first (most 'relevant') result is returned.'''
+	#keyword = '+'.join(keyword.split())
+	#url = 'https://api.crossref.org/works?query=' + keyword
+	#result = requests.get(url = url)
+	# Take first result
+	#result = result.json()['message']['items'][0]
+	article_dict = False
+	works = Works()
+	# If there is a timeout, sleep 3 seconds and try again (20 times)
+	for _ in range(20):
+		try:
+			result = works.query(keyword).sort("relevance")
+			for entry in result:
+				# Take first result
+				article_dict = entry
+				break
+		except:
+			time.sleep(3)
+	if article_dict:
+		article_dict = normalize_crossref_dict(article_dict)
+		#print(article_dict)
+		return article_dict
+			
+
+	#article_dict = normalize_crossref_dict(result)
+	#return article_dict
+
+
+
 
 
 if __name__ == '__main__':
