@@ -14,6 +14,7 @@ from crossref.restful import Works
 
 import requests
 
+
 def contains_minimal_information(article_dict) -> bool:
 	'''This function takes a dictionary, checks if a minimum of information is included
 	Necessary keys: "title", "authors", "year", "pages"
@@ -63,7 +64,7 @@ def normalize_scholarly_dict(article_dict: Dict) -> Dict:
 		if key_tuple[0] in article_dict.keys():
 			article_dict[key_tuple[1]] = article_dict.pop(key_tuple[0])
 	# Normalize author list
-	article_dict['authors'] == get_normalized_author_list(article_dict['authors'], 'scholarly')
+	article_dict['authors'] = get_normalized_author_list(article_dict['authors'], 'scholarly')
 	return article_dict
 
 
@@ -127,7 +128,15 @@ def get_info_by_PMID(PMID: str) -> Dict:
 	except MetaPubError:
 		pass
 	if contains_minimal_information(article_dict):
+		# Add data retrieval info to the dict and return it
+		article_dict = add_retrieval_information(article_dict, 'MetaPub', 'PMID', PMID)
 		return article_dict
+
+
+def add_retrieval_information(reference_dict: Dict, retrieved_from: str) -> Dict:
+	reference_dict['reference_retrieved_from'] = retrieved_from
+	reference_dict['query_str_type'] = 'PMID'
+	reference_dict['query_str'] = PMID
 
 
 def contains_DOI(ID: str) -> str:
@@ -168,7 +177,10 @@ def get_normalized_author_list(authors, input_type: str) -> List[str]:
 	# 'Rajan, Kohulan and Brinkhaus, Henning Otto and SOROKINA, MARIA and Zielesny, Achim and Steinbeck, Christoph'
 	author_list = []
 	if input_type == 'scholarly':
-		orig_author_list = authors.split(' And ')
+		if ' And ' in authors:
+			orig_author_list = authors.split(' And ')
+		elif ' and ' in authors:
+			orig_author_list = authors.split(' and ')
 		# Normalize upper- and lowercase spelling
 		for author in orig_author_list:
 			normalized_author = ''
@@ -266,11 +278,12 @@ def normalize_crossref_dict(crossref_dict: Dict) -> Dict:
 
 
 def create_normalized_reference_str(article_dict: Dict) -> str:
-	# TODO: Modify according to update
 	'''This function takes a dictionary with information about a publication (as returned by
 	get_info_by_DOI() or scholarly_request()) and returns a normalized reference string.'''
 	reference_str = ''
 	# Add authors
+	print("TERROR")
+	print(article_dict['authors'])
 	for author in article_dict['authors']:
 		reference_str += author + ', '
 	# If the journal name is known: Create something with the pattern
@@ -340,7 +353,7 @@ def crossrefAPI_query(keyword: str) -> Dict:
 	#result = result.json()['message']['items'][0]
 	article_dict = False
 	works = Works()
-	# If there is a timeout, sleep 3 seconds and try again (20 times)
+	# If there is a timeout, [sleep 1 second and] try again (20 times)
 	for _ in range(20):
 		try:
 			result = works.query(keyword).sort("relevance")
@@ -349,7 +362,8 @@ def crossrefAPI_query(keyword: str) -> Dict:
 				article_dict = entry
 				break
 		except:
-			time.sleep(3)
+			pass
+			#time.sleep(1)
 	if article_dict:
 		article_dict = normalize_crossref_dict(article_dict)
 		#print(article_dict)
