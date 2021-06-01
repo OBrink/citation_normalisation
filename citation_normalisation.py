@@ -6,13 +6,11 @@ import time
 
 from metapub import PubMedFetcher
 from metapub.exceptions import MetaPubError
-
 from scholarly import scholarly
-
-
+from scholarly._navigator import MaxTriesExceededException
 from crossref.restful import Works
 
-import requests
+#import requests
 
 
 def contains_minimal_information(article_dict) -> bool:
@@ -77,7 +75,30 @@ def scholarly_request(search_string: str) -> Dict:
 	scholarly.fill(article_info)
 	article_dict = article_info['bib']
 	article_dict = normalize_scholarly_dict(article_dict)
+	article_dict = add_retrieval_information(article_dict, 'Scholarly', 'unstructured_ID', search_string)
 	return article_dict
+
+
+def crossrefAPI_query(keyword: str) -> Dict:
+	'''This function takes a keyword str and sends an according GET request to the CrossRef API.
+	A normalized version of the first (most 'relevant') result is returned.'''
+	article_dict = False
+	works = Works()
+	# If there is a timeout, try again (5 times)
+	for _ in range(5):
+		try:
+			result = works.query(keyword).sort("relevance")
+			for entry in result:
+				# Take first result
+				article_dict = entry
+				break
+		except:
+			pass
+	if article_dict:
+		article_dict = normalize_crossref_dict(article_dict)
+		if contains_minimal_information(article_dict):
+			article_dict = add_retrieval_information(article_dict, 'Crossref', 'unstructured_ID', keyword)
+		return article_dict
 
 
 def get_info_by_DOI(DOI: str) -> Dict:
@@ -95,17 +116,21 @@ def get_info_by_DOI(DOI: str) -> Dict:
 					article_dict[info] = get_normalized_author_list(eval('article.' + info), 'metapub')
 				else:
 					article_dict[info] = eval('article.' + info)
+		# Add data retrieval info to the dict
+		article_dict = add_retrieval_information(article_dict, 'MetaPub', 'DOI', DOI)
 	except MetaPubError:
 		# If it does not work via Metapub, do it via Crossref Api
-		# If there is a timeout, sleep for three seconds and try again (20 times)
-		for _ in range(20):
+		# If there is a timeout, try again (5 times)
+		for _ in range(5):
 			try:
 				works = Works()
 				article_dict = works.doi(DOI)
 				break
 			except:
-				time.sleep(3)
+				pass
 		article_dict = normalize_crossref_dict(article_dict)
+		# Add data retrieval info to the dict
+		article_dict = add_retrieval_information(article_dict, 'Crossref', 'DOI', DOI)
 	if contains_minimal_information(article_dict):
 		return article_dict
 
@@ -133,10 +158,14 @@ def get_info_by_PMID(PMID: str) -> Dict:
 		return article_dict
 
 
-def add_retrieval_information(reference_dict: Dict, retrieved_from: str) -> Dict:
+def add_retrieval_information(reference_dict: Dict, retrieved_from: str, query_str_type: str, query_str: str) -> Dict:
+	'''This function takes a reference_dict (Dict) and information about where the reference data was retrieved from,
+	what type of query str and what exact query str have been used to retrieve the information. It adds this data to
+	the dictionary and returns the modified dictionary.'''
 	reference_dict['reference_retrieved_from'] = retrieved_from
-	reference_dict['query_str_type'] = 'PMID'
-	reference_dict['query_str'] = PMID
+	reference_dict['query_str_type'] = query_str_type
+	reference_dict['query_str'] = query_str
+	return reference_dict
 
 
 def contains_DOI(ID: str) -> str:
@@ -217,12 +246,17 @@ def get_normalized_author_list(authors, input_type: str) -> List[str]:
 	elif input_type == 'crossref':
 		for author_dict in authors:
 			normalized_author = ''
-			normalized_author += normalize_name_spelling(author_dict['family']) +', '
-			first_names = author_dict['given'].split()
-			for first_name_index in range(len(first_names)):
-				normalized_author += first_names[first_name_index][0].upper() + '.'
-				if first_name_index != len(first_names) - 1:
-					normalized_author += ', '
+			try:
+				# Personal name format
+				normalized_author += normalize_name_spelling(author_dict['family']) +', '
+				first_names = author_dict['given'].split()
+				for first_name_index in range(len(first_names)):
+					normalized_author += first_names[first_name_index][0].upper() + '.'
+					if first_name_index != len(first_names) - 1:
+						normalized_author += ', '
+			except KeyError:
+				# Organisation name format
+				normalized_author = author_dict['name']
 			author_list.append(normalized_author)
 
 	return author_list
@@ -282,8 +316,6 @@ def create_normalized_reference_str(article_dict: Dict) -> str:
 	get_info_by_DOI() or scholarly_request()) and returns a normalized reference string.'''
 	reference_str = ''
 	# Add authors
-	print("TERROR")
-	print(article_dict['authors'])
 	for author in article_dict['authors']:
 		reference_str += author + ', '
 	# If the journal name is known: Create something with the pattern
@@ -302,6 +334,24 @@ def create_normalized_reference_str(article_dict: Dict) -> str:
 	if 'DOI' in article_dict.keys():
 		reference_str += ' - DOI: ' + article_dict['DOI']
 	return reference_str
+
+
+def reference_quality_assurance(reference_dict: Dict) -> bool:
+	'''This function checks the retrieved reference dict to make sure that the retrieved
+	information matches the original input string. It returns a corresponding bool.'''
+	# If the query was based on a PMID or a DOI, there is no reason to not to trust the retrieved information.
+	if reference_dict['query_str_type'] in ['DOI', 'PMID']:
+		return True
+	# If the query was based on some keyword str, the result might be flawed.
+	else:
+		# Make sure that the year and the last name of the first author appear in the original query str
+		# TODO: Think about a better solution for this.
+		query_str = reference_dict['query_str']
+		if str(reference_dict['year']) in query_str:
+			first_author_surname = reference_dict['authors'][0].split()[0]
+			if first_author_surname.lower() in query_str.lower():
+				return True
+
 
 
 def get_structured_reference(unstructured_publication_ID: str) -> Dict:
@@ -331,7 +381,12 @@ def get_structured_reference(unstructured_publication_ID: str) -> Dict:
 		
 	# If we still have not gotten a sufficient result, try Google Scholar and take most 'relevant' result
 	if not contains_minimal_information(article_dict):
-		article_dict = scholarly_request(unstructured_publication_ID)
+		try:
+			article_dict = scholarly_request(unstructured_publication_ID)
+		except StopIteration:
+			article_dict = False
+		except MaxTriesExceededException:
+			article_dict = False
 	return article_dict
 
 
@@ -340,40 +395,6 @@ def get_structured_reference(unstructured_publication_ID: str) -> Dict:
 #	with WosClient('john.doe@uni-jena.de', 'insert_password_here') as client:
 #		result = wos.utils.query(client, keyword)
 #		return result
-
-
-
-def crossrefAPI_query(keyword: str) -> Dict:
-	'''This function takes a keyword str and sends an according GET request to the CrossRef API.
-	A normalized version of the first (most 'relevant') result is returned.'''
-	#keyword = '+'.join(keyword.split())
-	#url = 'https://api.crossref.org/works?query=' + keyword
-	#result = requests.get(url = url)
-	# Take first result
-	#result = result.json()['message']['items'][0]
-	article_dict = False
-	works = Works()
-	# If there is a timeout, [sleep 1 second and] try again (20 times)
-	for _ in range(20):
-		try:
-			result = works.query(keyword).sort("relevance")
-			for entry in result:
-				# Take first result
-				article_dict = entry
-				break
-		except:
-			pass
-			#time.sleep(1)
-	if article_dict:
-		article_dict = normalize_crossref_dict(article_dict)
-		#print(article_dict)
-		return article_dict
-			
-
-	#article_dict = normalize_crossref_dict(result)
-	#return article_dict
-
-
 
 
 
