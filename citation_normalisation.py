@@ -4,13 +4,12 @@ import re
 from typing import List, Tuple, Dict
 import time
 
+from eutils._internal.exceptions import EutilsNCBIError
 from metapub import PubMedFetcher
 from metapub.exceptions import MetaPubError
 from scholarly import scholarly
 from scholarly._navigator import MaxTriesExceededException
 from crossref.restful import Works
-
-#import requests
 
 
 def contains_minimal_information(article_dict) -> bool:
@@ -20,6 +19,8 @@ def contains_minimal_information(article_dict) -> bool:
 	It checks if the corresponding values exist and returns a bool that indicates 
 	the result.'''
 	# TODO: Define minimal standard what information needs to be in there
+	if not article_dict:
+		return
 	necessary_keys = ['title', 'authors', 'year']
 	#one_of_key_tuples = [('journal', 'book_title')]
 	one_of_key_tuples = []
@@ -42,7 +43,7 @@ def contains_minimal_information(article_dict) -> bool:
 				break
 		else:
 			# If no "break" has been executed until here, the article_dict is complete
-			return True 
+			return True
 
 
 def DOI_validity_check(article_dict: Dict, DOI: str) -> bool:
@@ -95,9 +96,9 @@ def crossrefAPI_query(keyword: str) -> Dict:
 		except:
 			pass
 	if article_dict:
-		article_dict = normalize_crossref_dict(article_dict)
-		if contains_minimal_information(article_dict):
-			article_dict = add_retrieval_information(article_dict, 'Crossref', 'unstructured_ID', keyword)
+		#article_dict = normalize_crossref_dict(article_dict)
+		#if contains_minimal_information(article_dict):
+		article_dict = add_retrieval_information(article_dict, 'Crossref', 'unstructured_ID', keyword)
 		return article_dict
 
 
@@ -111,11 +112,7 @@ def get_info_by_DOI(DOI: str) -> Dict:
 		# Save information in Dict
 		for info in dir(article):
 			if info[0] != '_':
-				# Normalize author list
-				if info == 'authors':
-					article_dict[info] = get_normalized_author_list(eval('article.' + info), 'metapub')
-				else:
-					article_dict[info] = eval('article.' + info)
+				article_dict[info] = eval('article.' + info)
 		# Add data retrieval info to the dict
 		article_dict = add_retrieval_information(article_dict, 'MetaPub', 'DOI', DOI)
 	except MetaPubError:
@@ -128,11 +125,11 @@ def get_info_by_DOI(DOI: str) -> Dict:
 				break
 			except:
 				pass
-		article_dict = normalize_crossref_dict(article_dict)
+		#article_dict = normalize_crossref_dict(article_dict)
 		# Add data retrieval info to the dict
+		#if contains_minimal_information(article_dict):
 		article_dict = add_retrieval_information(article_dict, 'Crossref', 'DOI', DOI)
-	if contains_minimal_information(article_dict):
-		return article_dict
+	return article_dict
 
 
 def get_info_by_PMID(PMID: str) -> Dict:
@@ -145,27 +142,24 @@ def get_info_by_PMID(PMID: str) -> Dict:
 		# Save information in Dict
 		for info in dir(article):
 			if info[0] != '_':
-				# Normalize author list
-				if info == 'authors':
-					article_dict[info] = get_normalized_author_list(eval('article.' + info), 'metapub')
-				else:
-					article_dict[info] = eval('article.' + info)
+				article_dict[info] = eval('article.' + info)				
 	except MetaPubError:
 		pass
-	if contains_minimal_information(article_dict):
+	#if contains_minimal_information(article_dict):
 		# Add data retrieval info to the dict and return it
-		article_dict = add_retrieval_information(article_dict, 'MetaPub', 'PMID', PMID)
-		return article_dict
+	article_dict = add_retrieval_information(article_dict, 'MetaPub', 'PMID', PMID)
+	return article_dict
 
 
 def add_retrieval_information(reference_dict: Dict, retrieved_from: str, query_str_type: str, query_str: str) -> Dict:
 	'''This function takes a reference_dict (Dict) and information about where the reference data was retrieved from,
 	what type of query str and what exact query str have been used to retrieve the information. It adds this data to
 	the dictionary and returns the modified dictionary.'''
-	reference_dict['reference_retrieved_from'] = retrieved_from
-	reference_dict['query_str_type'] = query_str_type
-	reference_dict['query_str'] = query_str
-	return reference_dict
+	if reference_dict:
+		reference_dict['reference_retrieved_from'] = retrieved_from
+		reference_dict['query_str_type'] = query_str_type
+		reference_dict['query_str'] = query_str
+		return reference_dict
 
 
 def contains_DOI(ID: str) -> str:
@@ -256,7 +250,10 @@ def get_normalized_author_list(authors, input_type: str) -> List[str]:
 						normalized_author += ', '
 			except KeyError:
 				# Organisation name format
-				normalized_author = author_dict['name']
+				try:
+					normalized_author = author_dict['name']
+				except KeyError:
+					return 
 			author_list.append(normalized_author)
 
 	return author_list
@@ -287,28 +284,35 @@ def normalize_crossref_dict(crossref_dict: Dict) -> Dict:
 	'''This function takes a dict with publication metadata as returned by the 
 	Crossref API and returns a dict which contains the essential information in 
 	the same format as returned by Metapub.'''
-	normalized_dict = {}
-	normkeys = ['title', 'abstract', 'DOI', 'issue', 'volume']
-	for normkey in normkeys:
-		if normkey in crossref_dict.keys():
-			content = crossref_dict[normkey]
-			if type(content) == list:
-				normalized_dict[normkey] = content[0]
-			else:
-				normalized_dict[normkey] = content
-	# year
-	if 'issued' in crossref_dict.keys():
-		if 'date-parts' in crossref_dict['issued']:
-			normalized_dict['year'] = crossref_dict['issued']['date-parts'][0][0]
-			
-	# journal/book
-	if 'type' in crossref_dict.keys():
-		if crossref_dict['type'] == 'journal-article':
-			normalized_dict['journal'] = crossref_dict['container-title'][0]
-	# author list
-	if 'author' in crossref_dict.keys(): 
-		normalized_dict['authors'] = get_normalized_author_list(crossref_dict['author'], 'crossref')
-	return normalized_dict
+	if crossref_dict:
+		normalized_dict = {}
+		normkeys = ['title', 'abstract', 'DOI', 'issue', 'volume']
+		for normkey in normkeys:
+			if normkey in crossref_dict.keys():
+				content = crossref_dict[normkey]
+				if type(content) == list:
+					normalized_dict[normkey] = content[0]
+				else:
+					normalized_dict[normkey] = content
+		# year
+		if 'issued' in crossref_dict.keys():
+			if 'date-parts' in crossref_dict['issued']:
+				normalized_dict['year'] = crossref_dict['issued']['date-parts'][0][0]
+				
+		# journal/book
+		if 'type' in crossref_dict.keys():
+			if crossref_dict['type'] == 'journal-article':
+				normalized_dict['journal'] = crossref_dict['container-title'][0]
+		# author list
+		if 'author' in crossref_dict.keys(): 
+			normalized_dict['authors'] = get_normalized_author_list(crossref_dict['author'], 'crossref')
+			if not normalized_dict['authors']:
+				return
+		# page
+		if 'page' in crossref_dict.keys():
+			if crossref_dict['type'] == 'journal-article':
+				normalized_dict['page'] = crossref_dict['page']
+		return normalized_dict
 
 
 def create_normalized_reference_str(article_dict: Dict) -> str:
@@ -354,12 +358,15 @@ def reference_quality_assurance(reference_dict: Dict) -> bool:
 
 
 
-def get_structured_reference(unstructured_publication_ID: str) -> Dict:
+def get_structured_reference(unstructured_publication_ID: str, only_DOI_PMID: bool = False, scholarly: bool = False) -> Dict:
 	'''This function takes a string that contains a reference to a publication.
+	If only_DOI_PMID = True, it will only return queries based on DOI or Pubmed IDs (relatively secure).
+	Otherwise, the most "relevant" result from a Crossref keyword query is also used.
+	If scholarly = True, Scholarly will be used as an emergency solution (warning: CAPTCHAS)
 	It uses
 	- Metapub (PubMed API)
 	- Crossref API
-	- scholarly (Google Scholar API) [for now removed because of CAPTCHAS]
+	- Scholarly (Google Scholar) [emergency solution <- CAPTCHAS]
 	to request more information and returns a Dict that contains
 	all gathered information about the publication in a structured format.'''
 	
@@ -367,39 +374,79 @@ def get_structured_reference(unstructured_publication_ID: str) -> Dict:
 	article_dict = False
 	DOI = contains_DOI(unstructured_publication_ID)
 	if DOI:
-		article_dict = get_info_by_DOI(DOI)
+		try:
+			article_dict = get_info_by_DOI(DOI)
+		except EutilsNCBIError:
+			article_dict = False
 	# If no DOI is available or the queries have not returned anything reasonable, 
 	#check if the given ID only consists of numbers. If that is the case, interpret 
-	# it as a PMID for a Metapub query.
+	# it as a PMID for a Metapub query and see if that works.
 	if not article_dict:
-		if unstructured_publication_ID.isdigit():
-			article_dict = get_info_by_PMID(unstructured_publication_ID)
+		if len(unstructured_publication_ID) > 5:
+			if unstructured_publication_ID.isdigit():
+				try:
+					article_dict = get_info_by_PMID(unstructured_publication_ID)
+				except EutilsNCBIError:
+					article_dict = False
 	# If it has not worked until now, use crossref API and take most 'relevant' result
 	# TODO: Some sort of validation that we get the right result here
-	if not article_dict:
-		article_dict = crossrefAPI_query(unstructured_publication_ID)
+	if not only_DOI_PMID:
+		if not article_dict:
+			article_dict = crossrefAPI_query(unstructured_publication_ID)
+
 		
 	# If we still have not gotten a sufficient result, try Google Scholar and take most 'relevant' result
-	if not contains_minimal_information(article_dict):
-		try:
-			article_dict = scholarly_request(unstructured_publication_ID)
-		except StopIteration:
-			article_dict = False
-		except MaxTriesExceededException:
-			article_dict = False
+	# WARNING: If you launch too many requests, Google will block you and/or use CAPTCHAs
+	if scholarly:	
+		if article_dict:
+			if not contains_minimal_information(article_dict):
+				try:
+					article_dict = scholarly_request(unstructured_publication_ID)
+				except StopIteration:
+					article_dict = False
+				except MaxTriesExceededException:
+					article_dict = False
 	return article_dict
 
 
-#def WOS_query(keyword: str):
-#	'''Does not work'''
-#	with WosClient('john.doe@uni-jena.de', 'insert_password_here') as client:
-#		result = wos.utils.query(client, keyword)
-#		return result
+def retrieve_info_MetaPub_Crossref(unstructured_publication_ID: str, only_DOI_PMID: bool = False) -> Dict:
+	'''This function takes a string that contains a reference to a publication.
+	If only_DOI_PMID = True, it will only return queries based on DOI or Pubmed IDs (relatively secure).
+	Otherwise, the most "relevant" result from a Cros
+	It uses
+	- Metapub (PubMed API)
+	- Crossref API
+	to request more information and returns a Dict that contains
+	all gathered information about the publication in a structured format.'''
+	
+	# If there is a DOI in the input str, try to use Metapub and 
+	article_dict = False
+	DOI = contains_DOI(unstructured_publication_ID)
+	if DOI:
+		try:
+			article_dict = get_info_by_DOI(DOI)
+		except EutilsNCBIError:
+			article_dict = False
+	# If no DOI is available or the queries have not returned anything reasonable, 
+	#check if the given ID only consists of numbers. If that is the case, interpret 
+	# it as a PMID for a Metapub query and see if that works.
+	if not article_dict:
+		if len(unstructured_publication_ID) > 3:
+			if unstructured_publication_ID.isdigit():
+				try:
+					article_dict = get_info_by_PMID(unstructured_publication_ID)
+				except EutilsNCBIError:
+					article_dict = False
+	# If it has not worked until now, use crossref API and take most 'relevant' result
+	if not only_DOI_PMID:
+		if not article_dict:
+			article_dict = crossrefAPI_query(unstructured_publication_ID)
+	return article_dict
 
 
 
 if __name__ == '__main__':
 	if len(sys.argv) == 2:
-		get_structured_reference(sys.argv[1])
+		retrieve_info_MetaPub_Crossref(sys.argv[1])
 	else:
 		print('Usage: ' + sys.argv[0] + 'unstructured_publication_ID')
