@@ -3,13 +3,16 @@ import os
 import re
 from typing import List, Tuple, Dict
 import time
-
+import requests
+from json.decoder import JSONDecodeError
 from eutils._internal.exceptions import EutilsNCBIError
 from metapub import PubMedFetcher
 from metapub.exceptions import MetaPubError
 from scholarly import scholarly
 from scholarly._navigator import MaxTriesExceededException
 from crossref.restful import Works
+import reference_parser as rp
+
 
 
 def contains_minimal_information(article_dict) -> bool:
@@ -95,11 +98,151 @@ def crossrefAPI_query(keyword: str) -> Dict:
 				break
 		except:
 			pass
+	else:
+		return
 	if article_dict:
 		#article_dict = normalize_crossref_dict(article_dict)
 		#if contains_minimal_information(article_dict):
 		article_dict = add_retrieval_information(article_dict, 'Crossref', 'unstructured_ID', keyword)
 		return article_dict
+
+
+def crossrefAPI_improved_query(parsed_ref_dict: Dict) -> Dict:
+	'''
+	This function takes a parsed reference dict as returned by the parsers from reference_parser.
+	It uses the information given in the dict to create a cleaned up string for a  Crossref keyword 
+	query and goes through the first 200 entries to check if the returned result overlaps with the 
+	parsed information and returns the result.
+	'''
+	article_dict = False
+	works = Works()
+	for _ in range(5):
+		try:
+			# Create clean query string
+			# If everything is given
+			if 'volume' not in parsed_ref_dict.keys():
+				return None
+			if 'authors' in parsed_ref_dict.keys():
+				if 'issue' in parsed_ref_dict.keys():
+					formatted_bib_str = '{}, {}, {}, ({}), ({}), {}'.format(parsed_ref_dict['authors'],
+																		parsed_ref_dict['journal'],
+																		parsed_ref_dict['volume'],
+																		parsed_ref_dict['issue'],
+																		parsed_ref_dict['year'],
+																		parsed_ref_dict['pages'])
+				# Everything but the issue is given
+				else:
+					formatted_bib_str = '{}, {}, {}, ({}), {}'.format(parsed_ref_dict['authors'],
+																		parsed_ref_dict['journal'],
+																		parsed_ref_dict['volume'],
+																		parsed_ref_dict['year'],
+																		parsed_ref_dict['pages'])
+			# Everything but author given
+			elif 'issue' in parsed_ref_dict.keys():
+				formatted_bib_str = '{}, {}, ({}), ({}), {}'.format(parsed_ref_dict['journal'],
+																	parsed_ref_dict['volume'],
+																	parsed_ref_dict['issue'],
+																	parsed_ref_dict['year'],
+																	parsed_ref_dict['pages'])
+			
+			result = works.query(formatted_bib_str).sort("relevance")
+			
+			# Browse first 200 entries to check if one of the results fit
+			a = 0
+			try:
+				for entry in result:
+					a += 1
+					if a == 200:
+						break
+					entry = add_retrieval_information(entry, 'Crossref', 'Crossref_extended_query', str(parsed_ref_dict))
+
+					normalized_dict = normalize_crossref_dict(entry)
+					#print(normalized_dict)
+					if normalized_dict:
+						if is_same_publication(parsed_ref_dict, normalized_dict):
+							article_dict = entry
+							break	
+			except JSONDecodeError:
+				pass
+			break
+		except requests.exceptions.Timeout:
+			pass
+	if article_dict:
+		return article_dict
+
+
+def journal_name_match(str_1: str, str_2: str)-> bool:
+	'''
+	This function takes two strings and determines whether all letters from the
+	shorter string appear in the longer string in the same order. If the condition
+	is fulfilled, it returns True.
+	'''
+	# Normalise input strings while only considering alphabetic characters
+	str_1 = ''.join(re.findall('[A-Za-z]+', str_1)).lower()
+	str_2 = ''.join(re.findall('[A-Za-z]+', str_2)).lower()
+	longer_str = max([str_1, str_2], key=len)
+	shorter_str = min([str_1, str_2], key=len)
+
+	index = 0
+	reconstr_shorter_str = ''
+	# Check if chars from shorter str can be matched with longer str in right order
+	for short_char in shorter_str:
+		for long_char_index in range(index, len(longer_str)):
+			if short_char == longer_str[long_char_index]:
+				index = long_char_index + 1
+				reconstr_shorter_str += short_char
+				break
+	if reconstr_shorter_str == shorter_str:
+		return True
+
+
+def is_same_publication(parsed_ref_data: Dict, retrieved_ref_data: Dict) -> bool:
+	'''
+	This function compares two dictionaries with parsed and retrieved reference data and
+	return True if all of the following are the same:
+	- year
+	- family name of first author
+	- volume
+	- first page
+	- issue (if given)
+	Additionally a str matching function is called to determine whether the journal names
+	match (for details see journal_name_match()).
+	'''
+	# Check if journal names match 
+	if 'journal' in retrieved_ref_data.keys():
+		if 'journal' in parsed_ref_data.keys():
+			if not journal_name_match(parsed_ref_data['journal'], retrieved_ref_data['journal']):
+				return False
+		else: return False
+	else:
+		return False
+
+	# Check necessary keys
+	necessary_keys = ['year', 
+					  'first_page', 
+					  'first_author_surname', 
+					  'volume']
+	for key in necessary_keys:
+		if key in retrieved_ref_data.keys():
+			if key in parsed_ref_data.keys():
+				if str(parsed_ref_data[key]) == str(retrieved_ref_data[key]):
+					pass
+				else:
+					return False
+			else:
+				return False
+		else:
+			return False
+	# Check optional keys
+	optional_keys = ['issue']
+	for key in optional_keys:
+		if parsed_ref_data[key]:
+			if key in retrieved_ref_data.keys():
+				if str(parsed_ref_data[key]) == str(retrieved_ref_data[key]):
+					pass
+				else:
+					return False
+	return True
 
 
 def get_info_by_DOI(DOI: str) -> Dict:
@@ -228,13 +371,13 @@ def get_normalized_author_list(authors, input_type: str) -> List[str]:
 			normalized_author = ''
 			for sub_name in name.split(' '):
 				# abbreviated first name(s)
-				if sub_name.isupper():
+				if sub_name.isupper() and len(sub_name) == 1:
 					for char in sub_name:
-						normalized_author += char + '., '
+						normalized_author += char + '. '
 				# surname
 				else:
-					normalized_author += sub_name + '., '
-			author_list.append(normalized_author)
+					normalized_author += sub_name + ', '
+			author_list.append(normalize_name_spelling(normalized_author[:-2]))
 
 	# CROSSREF OUTPUT: [{'given': 'Kohulan', 'family': 'Rajan', 'sequence': 'first', 'affiliation': []}, {'given': 'Henning Otto', 'family': 'Brinkhaus', 'sequence': 'additional', 'affiliation': []}]
 	elif input_type == 'crossref':
@@ -243,11 +386,14 @@ def get_normalized_author_list(authors, input_type: str) -> List[str]:
 			try:
 				# Personal name format
 				normalized_author += normalize_name_spelling(author_dict['family']) +', '
-				first_names = author_dict['given'].split()
-				for first_name_index in range(len(first_names)):
-					normalized_author += first_names[first_name_index][0].upper() + '.'
-					if first_name_index != len(first_names) - 1:
-						normalized_author += ', '
+				if 'given' in author_dict.keys():
+					first_names = author_dict['given'].split()
+					for first_name_index in range(len(first_names)):
+						normalized_author += first_names[first_name_index][0].upper() + '.'
+						if first_name_index != len(first_names) - 1:
+							normalized_author += ' '
+				else:
+					normalized_author = normalized_author[:-2]
 			except KeyError:
 				# Organisation name format
 				try:
@@ -270,14 +416,39 @@ def normalize_title(title: str, only_if_homogeneous: bool = True) -> str:
 		title = ''
 		for word in split_str:
 			if word.lower() not in lowercase_list: 
-				title += word[0].upper()
-				for char in word[1:]:
-					title += char.lower()
+				if len(word) > 0:
+					title += word[0].upper()
+					for char in word[1:]:
+						title += char.lower()
 			else:
 				title += word
 			title += ' '
 		title = title[:-1]
 	return title
+
+
+
+def normalize_metapub_dict(metapub_dict: Dict):
+	'''
+	This function takes a dictionary as it is returned by a MetaPub retrieval
+	and returns a dictionary with the information relevant for a reference notation
+	str in a normalised format.
+	'''
+	normalized_dict = {}
+	copy_keys = ['title', 'year', 'volume', 'issue', 'first_page', 'pages', 'journal', 'reference_retrieved_from', 'query_str_type', 'query_str']
+	for key in copy_keys:
+		if key in metapub_dict.keys(): 
+			normalized_dict[key] = metapub_dict[key]
+	if 'authors' in metapub_dict.keys() and len(metapub_dict['authors']) > 0: 
+		normalized_dict['authors'] = get_normalized_author_list(metapub_dict['authors'], 'metapub')
+		normalized_dict['first_author_surname'] = normalized_dict['authors'][0].split(',')[0]
+	if 'doi' in metapub_dict.keys(): 
+		normalized_dict['DOI'] = metapub_dict['doi']
+	if 'pmid' in metapub_dict.keys():
+		normalized_dict['PMID'] = metapub_dict['pmid']
+	else:
+		normalized_dict['PMID'] = None
+	return normalized_dict
 
 
 def normalize_crossref_dict(crossref_dict: Dict) -> Dict:
@@ -291,9 +462,12 @@ def normalize_crossref_dict(crossref_dict: Dict) -> Dict:
 			if normkey in crossref_dict.keys():
 				content = crossref_dict[normkey]
 				if type(content) == list:
-					normalized_dict[normkey] = content[0]
+					if len(content) > 0:
+						normalized_dict[normkey] = content[0]
 				else:
 					normalized_dict[normkey] = content
+			else:
+				normalized_dict[normkey] = None
 		# year
 		if 'issued' in crossref_dict.keys():
 			if 'date-parts' in crossref_dict['issued']:
@@ -308,11 +482,23 @@ def normalize_crossref_dict(crossref_dict: Dict) -> Dict:
 			normalized_dict['authors'] = get_normalized_author_list(crossref_dict['author'], 'crossref')
 			if not normalized_dict['authors']:
 				return
+			normalized_dict['first_author_surname'] = normalized_dict['authors'][0].split(',')[0]
+			
 		# page
 		if 'page' in crossref_dict.keys():
 			if crossref_dict['type'] == 'journal-article':
-				normalized_dict['page'] = crossref_dict['page']
+				normalized_dict['pages'] = crossref_dict['page']
+				normalized_dict['first_page'] = normalized_dict['pages'].split('-')[0]
+		else:
+			normalized_dict['pages'] = normalized_dict['first_page'] = False
+		
+		origin_keys = ['reference_retrieved_from', 'query_str_type', 'query_str']
+		for origin_key in origin_keys:
+			normalized_dict[origin_key] = crossref_dict[origin_key]
+		normalized_dict['PMID'] = None
 		return normalized_dict
+
+
 
 
 def create_normalized_reference_str(article_dict: Dict) -> str:
@@ -320,23 +506,31 @@ def create_normalized_reference_str(article_dict: Dict) -> str:
 	get_info_by_DOI() or scholarly_request()) and returns a normalized reference string.'''
 	reference_str = ''
 	# Add authors
-	for author in article_dict['authors']:
-		reference_str += author + ', '
+	if 'authors' in article_dict.keys():
+		if len(article_dict['authors']) >= 3:
+			reference_str = article_dict['first_author_surname'] + ' et al., '
+		elif len(article_dict['authors']) == 0:
+			reference_str = ''
+		else:
+			reference_str = article_dict['first_author_surname'] + ', '
 	# If the journal name is known: Create something with the pattern
-	# #Smith, J et al, J. Odd Results, 1968, 10, 1020-30
+	# #Smith, J. et al, J. Odd Results, 1968, 10, 1020
 	if 'journal' in article_dict.keys():
 		reference_str += normalize_title(article_dict['journal'], only_if_homogeneous=False) + ', '
 		reference_str += str(article_dict['year']) + ', '
-		if 'volume' in article_dict.keys():
-			reference_str += article_dict['volume'] + ', '
-		if 'pages' in article_dict.keys():
-			reference_str += article_dict['pages'].replace('--', '-') + ', '
+		if 'volume' in article_dict.keys() and article_dict['volume']:
+			reference_str += str(article_dict['volume']) + ', '
+		if 'issue' in article_dict.keys() and article_dict['issue']:
+			if 'volume' in article_dict.keys() and article_dict['volume']:
+				reference_str = reference_str[:-2] + ' (' + str(article_dict['issue']) + '), '
+			else:
+				reference_str = reference_str + '(' + str(article_dict['issue']) + '), '
+		if 'first_page' in article_dict.keys() and article_dict['first_page']:
+			reference_str += article_dict['first_page']#.replace('--', '-') + ', '
 	else:
-		reference_str += normalize_title(article_dict['title']) + ', '
-		reference_str += str(article_dict['year']) + ', '
-	reference_str = reference_str[:-2]
-	if 'DOI' in article_dict.keys():
-		reference_str += ' - DOI: ' + article_dict['DOI']
+		reference_str = None
+	#reference_str = reference_str[:-2]
+
 	return reference_str
 
 
@@ -415,7 +609,7 @@ def retrieve_info_MetaPub_Crossref(unstructured_publication_ID: str, only_DOI_PM
 	Otherwise, the most "relevant" result from a Cros
 	It uses
 	- Metapub (PubMed API)
-	- Crossref API
+	- Crossref API (with the first 200 entries)
 	to request more information and returns a Dict that contains
 	all gathered information about the publication in a structured format.'''
 	
@@ -440,8 +634,38 @@ def retrieve_info_MetaPub_Crossref(unstructured_publication_ID: str, only_DOI_PM
 	# If it has not worked until now, use crossref API and take most 'relevant' result
 	if not only_DOI_PMID:
 		if not article_dict:
-			article_dict = crossrefAPI_query(unstructured_publication_ID)
+			parser = rp.reference_parser()
+			parsed_ref_dict = parser(unstructured_publication_ID)
+			parsed_ref_dict = add_retrieval_information(parsed_ref_dict, 'Crossref', 'unstructured_ID', unstructured_publication_ID)
+			article_dict = crossrefAPI_improved_query(parsed_ref_dict)
 	return article_dict
+
+
+def get_final_dict_from_ref_str(ref_str: str) -> Dict:
+	'''
+	This function takes a ref_str and goes through the whole process of 
+	information retrieval (DOI, PMID retrievals are considered secure,
+	the keyword retrievals are double checked by comparing parsed information
+	with the retrieved information) and if the information is confirmed, it
+	returns a dictionary that maps the original string to a dictionary that
+	contains a normalised reference str, the DOI and the PMID.
+	'''
+
+	ref_dict = retrieve_info_MetaPub_Crossref(ref_str)
+	if ref_dict:
+		if ref_dict["reference_retrieved_from"] == "Crossref":
+			norm_dict = normalize_crossref_dict(ref_dict)
+			if norm_dict['query_str'][0] == '{':
+				norm_dict['query_str'] = eval(norm_dict['query_str'])['query_str']
+		elif ref_dict['reference_retrieved_from'] == 'MetaPub':
+			norm_dict = normalize_metapub_dict(ref_dict) 
+		references = {}
+		if create_normalized_reference_str(norm_dict):
+			references[norm_dict['query_str']] = {'reference': create_normalized_reference_str(norm_dict),
+												  'DOI': norm_dict['DOI'],
+												  'PMID': norm_dict['PMID']}
+			return references
+
 
 
 

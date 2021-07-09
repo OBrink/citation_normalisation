@@ -21,6 +21,8 @@ class reference_parser:
 							self.parse_general_pattern,
 							self.parse_underscore_pattern,
 							self.parse_jchemsoc_pattern,
+							self.parse_harborne_flavonoid_pattern,
+							self.parse_harborne_phytochemdict_pattern
 							]
 		for parser_function in parser_functions:
 			parsed_reference_dict = parser_function(reference_str)
@@ -49,10 +51,12 @@ class reference_parser:
 		'''
 		# Define regex pattern
 		authors = '(?P<authors>([A-Z\-]\.\s?)*(?P<first_author_surname>[a-zA-Z\-\s]+),?([A-Z]\.\-?\s?)?\,?\s?([A-Z]\.\s?)?)\.?(\s?\,|et al\.?,?)\s?'
+		#authors = '(?P<authors>([A-Z\-]\.\s?)*(?P<first_author_surname>[a-zA-Z\-]+)\s?,?([A-Z]\.\-?\s?)?\,?\s?([A-Z]\.\s?)?)\.?(\s?\,|et al\.?,?)\s?'
+
 		journal = '(?P<journal>[a-zA-Z\-\'\s\.]+)(\s?\([A-Za-z]+\)\s?)?(,\s?Suppl.)?,?\.?\s?'
 		volume_issue = '((?P<volume>(No\.?\s?)?\d+[A-Ea-e]?)(\s?\((?P<issue>\d+)\))?\.?,?\s?)?' # does not have to appear
 		year = '\((?P<year>(20|1[89])\d\d)\),?\s?'
-		typo_year = '(8?(?P<year1>(20|1[89])\d\d)\),?\s?|8(?P<year2>(20|1[89])\d\d)9,?\s?|\((?P<year3>(20|1[89])\d\d)9,?\s?)'
+		typo_year = '(8?(?P<year1>(20|1[789])\d\d)\),?\s?|8(?P<year2>(20|1[89])\d\d)9,?\s?|\((?P<year3>(20|1[89])\d\d)9,?\s?)'
 		pages = '(?P<pages>(?P<first_page>\d+)(\-\d+)?)'
 		
 		general_pattern = '^\s?' + authors + journal + volume_issue + year + pages + '\.?$'
@@ -63,10 +67,16 @@ class reference_parser:
 		match = re.search(general_pattern, reference)
 		if match:
 			group_dict = match.groupdict()
+			# Get rid of " et al" in surname 
+			if group_dict['first_author_surname'][-6:] == ' et al':
+				group_dict['first_author_surname'] = group_dict['first_author_surname'][:-6]
 			return group_dict
 		match = re.search(general_pattern_with_year_typo, reference)
 		if match:
 			group_dict = match.groupdict()
+			# Get rid of " et al" in surname 
+			if group_dict['first_author_surname'][-6:] == ' et al':
+				group_dict['first_author_surname'] = group_dict['first_author_surname'][:-6]
 			# Delete unnecessary year keys and save information under key "year"
 			year_keys = ['year1', 'year2', 'year3']
 			for year_key in year_keys:
@@ -92,10 +102,10 @@ class reference_parser:
 		journal = '(?P<journal>[A-Za-z\_]+)'
 		year = '(?P<year>(20|1[89])\d\d)'
 		gap = '[_:;]'
-		volume_issue = '(?P<volume>\d+)([_:;]\((?P<issue>\d+)\))?'
+		volume_issue = '(?P<volume>\d+)([_:;]?\((?P<issue>\d+)\))?'
 		pages = '(?P<pages>(?P<first_page>\d+)(\-\d+)?)'
 
-		underscore_pattern = '^\s?' + journal + gap + year + gap + volume_issue + gap + pages + '$'
+		underscore_pattern = '^\"?\s?\"?' + journal + gap + year + gap + volume_issue + gap + pages + '\"?\s?\"?$'
 		
 		# Match pattern, create group_dict, normalise and return it
 		match = re.search(underscore_pattern, reference)
@@ -160,6 +170,7 @@ class reference_parser:
 			group_dict['publisher'] = 'Wiley'
 			group_dict['doi'] = '10.1016/S0039-9140(00)00629-9'
 			group_dict['isbn'] = '0-471-95893-' + group_dict['volume']
+			group_dict['original_str'] = reference
 			return group_dict
 
 
@@ -189,4 +200,5 @@ class reference_parser:
 			group_dict['title'] = 'Phytochemical Dictionary. A Handbook of Bioactive Compounds from Plants (Second Edition)'
 			group_dict['doi'] = 'https://doi.org/10.4324/9780203483756'
 			group_dict['isbn'] = '9780748406203'
+			group_dict['original_str'] = reference
 			return group_dict
