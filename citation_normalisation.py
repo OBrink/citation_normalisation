@@ -2,7 +2,6 @@ import sys
 import os
 import re
 from typing import List, Tuple, Dict
-import time
 import requests
 from json.decoder import JSONDecodeError
 from eutils._internal.exceptions import EutilsNCBIError
