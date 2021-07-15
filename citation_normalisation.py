@@ -14,41 +14,6 @@ from crossref.restful import Works
 import reference_parser as rp
 
 
-
-def contains_minimal_information(article_dict) -> bool:
-	'''This function takes a dictionary, checks if a minimum of information is included
-	Necessary keys: "title", "authors", "year", "pages"
-	Additionally one of the following keys: ("journal", "book_title")
-	It checks if the corresponding values exist and returns a bool that indicates 
-	the result.'''
-	# TODO: Define minimal standard what information needs to be in there
-	if not article_dict:
-		return
-	necessary_keys = ['title', 'authors', 'year']
-	#one_of_key_tuples = [('journal', 'book_title')]
-	one_of_key_tuples = []
-	# Check that all necessary keys exist and have a value
-	for key in necessary_keys:
-		if key not in article_dict.keys():
-			break
-		elif not article_dict[key]:
-			break
-	# Check that one key from each one_of_key_tuple exists and has a value
-	else:
-		for key_tuple in one_of_key_tuples:
-			key_1, key_2 = key_tuple
-			if key_1 not in article_dict.keys():
-				if key_2 not in article_dict.keys():
-					break
-				elif not article_dict[key_2]:
-					break
-			elif not article_dict[key_1]:
-				break
-		else:
-			# If no "break" has been executed until here, the article_dict is complete
-			return True
-
-
 def DOI_validity_check(article_dict: Dict, DOI: str) -> bool:
 	'''This function takes a DOI string and a a dictionary. It checks if the key "doi" of the 
 	dictionary has a value that is not None and that it and the given DOI are the same.'''
@@ -81,6 +46,43 @@ def scholarly_request(search_string: str) -> Dict:
 	article_dict = normalize_scholarly_dict(article_dict)
 	article_dict = add_retrieval_information(article_dict, 'Scholarly', 'unstructured_ID', search_string)
 	return article_dict
+
+
+def contains_minimal_information(article_dict) -> bool:
+	# Right now, this is only called when a request is done using Scholarly.
+	# For COCONUT citation normalisation, this function is useless and has not been used.
+	'''This function takes a dictionary, checks if a minimum of information is included
+	Necessary keys: "title", "authors", "year", "pages"
+	Additionally one of the following keys: ("journal", "book_title")
+	It checks if the corresponding values exist and returns a bool that indicates 
+	the result.'''
+	# TODO: Define minimal standard what information needs to be in there
+	if not article_dict:
+		return
+	necessary_keys = ['title', 'authors', 'year']
+	#one_of_key_tuples = [('journal', 'book_title')]
+	one_of_key_tuples = []
+	# Check that all necessary keys exist and have a value
+	for key in necessary_keys:
+		if key not in article_dict.keys():
+			break
+		elif not article_dict[key]:
+			break
+	# Check that one key from each one_of_key_tuple exists and has a value
+	else:
+		for key_tuple in one_of_key_tuples:
+			key_1, key_2 = key_tuple
+			if key_1 not in article_dict.keys():
+				if key_2 not in article_dict.keys():
+					break
+				elif not article_dict[key_2]:
+					break
+			elif not article_dict[key_1]:
+				break
+		else:
+			# If no "break" has been executed until here, the article_dict is complete
+			return True
+
 
 
 def crossrefAPI_query(keyword: str) -> Dict:
